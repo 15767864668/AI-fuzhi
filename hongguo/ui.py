@@ -126,6 +126,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                     gr.Markdown("### 视频生成后端")
                     backend = config("backend", gr.Dropdown(label="后端切换", choices=BACKENDS, value="official"))
                     official_key = gr.Textbox(label="MiniMax API Key", type="password", placeholder="可留空，读取 MINIMAX_API_KEY", value="")
+                    remember_key = gr.Checkbox(label="记住上次使用的 API Key（重新打开网页自动载入）", value=True)
                     with gr.Accordion("本地 API Key 管理（仅本机）", open=True):
                         gr.Markdown("密钥保存在运行程序的电脑的数据目录中，不写入项目包或 GitHub。**本地文件未加密**，请勿在多人共用或公开部署的服务上使用。")
                         saved_key = gr.Dropdown(label="选择已保存的 MiniMax Key", choices=[], interactive=True)
@@ -340,34 +341,52 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
         add_character.click(save_character, [project_state, character_name, character_image], [project_state, characters_gallery, status], **QUEUE)
         remove_character.click(delete_character, [project_state, character_name], [project_state, characters_gallery, status], **QUEUE)
 
-        def refresh_keys() -> Any:
+        def refresh_keys() -> tuple[Any, str, str]:
             names = key_store.names()
-            return gr.update(choices=names, value=names[0] if names else None)
+            selected = key_store.remembered_name()
+            return gr.update(choices=names, value=selected), (key_store.get(selected) if selected else ""), ("已自动载入上次使用的 Key。" if selected else "")
 
-        def save_local_key(name: str, secret: str) -> tuple[Any, str]:
+        def save_local_key(name: str, secret: str, remember: bool) -> tuple[Any, str]:
             try:
                 key_store.save(name, secret)
+                if remember:
+                    key_store.remember(name.strip())
                 return gr.update(choices=key_store.names(), value=name.strip()), "已保存到本机。"
             except Exception as exc:
                 raise error(exc) from exc
 
-        def select_local_key(name: str | None) -> tuple[str, str]:
+        def select_local_key(name: str | None, remember: bool) -> tuple[str, str]:
             try:
-                return key_store.get(name), "已载入所选 Key，可用于生成。"
+                secret = key_store.get(name)
+                if remember:
+                    key_store.remember(name)
+                return secret, "已载入所选 Key，可用于生成。"
             except Exception as exc:
                 raise error(exc) from exc
 
         def delete_local_key(name: str | None) -> tuple[Any, str, str]:
             try:
                 key_store.delete(name)
-                return refresh_keys(), "", "已删除所选本地 Key。"
+                choices, _, _ = refresh_keys()
+                return choices, "", "已删除所选本地 Key。"
             except Exception as exc:
                 raise error(exc) from exc
 
-        save_key_button.click(save_local_key, [key_name, official_key], [saved_key, key_notice], **QUEUE)
-        select_key_button.click(select_local_key, saved_key, [official_key, key_notice], **QUEUE)
+        save_key_button.click(save_local_key, [key_name, official_key, remember_key], [saved_key, key_notice], **QUEUE)
+        select_key_button.click(select_local_key, [saved_key, remember_key], [official_key, key_notice], **QUEUE)
         delete_key_button.click(delete_local_key, saved_key, [saved_key, official_key, key_notice], **QUEUE)
         clear_key_button.click(lambda: ("", "输入框已清空；已保存的 Key 不受影响。"), None, [official_key, key_notice], **QUEUE)
+
+        def change_remember(enabled: bool, selected: str | None) -> str:
+            if not enabled:
+                key_store.forget_selection()
+                return "已关闭自动记住。"
+            if selected:
+                key_store.remember(selected)
+                return "已记住当前选择，下次打开网页会自动载入。"
+            return "请选择并使用一个已保存的 Key。"
+
+        remember_key.change(change_remember, [remember_key, saved_key], key_notice, **QUEUE)
 
         def switch_backend(value: str) -> tuple[Any, ...]:
             official = value == "official"
@@ -511,7 +530,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
         recover_autosave_button.click(recover_autosave, autosaves, hydrate_outputs, **QUEUE)
         project_upload.upload(load_project, project_upload, hydrate_outputs, **QUEUE)
         new_button.click(new_project, None, hydrate_outputs, **QUEUE)
-        demo.load(new_project, None, hydrate_outputs, **QUEUE).then(refresh_autosaves, None, autosaves, **QUEUE).then(refresh_keys, None, saved_key, **QUEUE)
+        demo.load(new_project, None, hydrate_outputs, **QUEUE).then(refresh_autosaves, None, autosaves, **QUEUE).then(refresh_keys, None, [saved_key, official_key, key_notice], **QUEUE)
 
         def batch_projects(paths: list[Any] | None, *args: Any):
             try:
