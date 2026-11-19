@@ -51,7 +51,7 @@ def _first_clip(project: Any) -> str | None:
     return next((_existing(seg.clip_path) for seg in project.segments if _existing(seg.clip_path)), None)
 
 
-def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
+def build_ui(workspace: str | Path | None = None, canvas_port: int = 8766) -> gr.Blocks:
     """创建 UI，不启动 Web 服务，便于脚本测试和本地启动器复用。"""
     data_root = Path(workspace or os.environ.get("HONGGUO_DATA_DIR", "data")).resolve()
     service = StudioService(data_root)
@@ -119,6 +119,10 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                         intro = gr.Video(label="片头（可选，上传即保存）", sources=["upload"], format=None)
                         outro = gr.Video(label="片尾（可选，上传即保存）", sources=["upload"], format=None)
                     gr.Markdown("H3 片段自带人声，无需额外 TTS 或对口型模型。片头片尾会统一规格后拼接。")
+
+        with gr.Tab("∞ · 无限画布"):
+            gr.Markdown("**自由分镜画布**：拖拽节点、连线、缩放和平移；自动保存到本机。当前为独立创意画布，不会自动改动剧本表格或发起 H3 计费请求。")
+            gr.HTML(f'<iframe src="http://127.0.0.1:{canvas_port}/" title="无限画布" style="width:100%;height:740px;border:1px solid #465163;border-radius:12px;background:#101318"></iframe>')
 
         with gr.Tab("2 · 生成与导出"):
             with gr.Row():
