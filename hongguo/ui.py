@@ -366,7 +366,6 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
 
         save_key_button.click(save_local_key, [key_name, official_key], [saved_key, key_notice], **QUEUE)
         select_key_button.click(select_local_key, saved_key, [official_key, key_notice], **QUEUE)
-        saved_key.change(select_local_key, saved_key, [official_key, key_notice], **QUEUE)
         delete_key_button.click(delete_local_key, saved_key, [saved_key, official_key, key_notice], **QUEUE)
         clear_key_button.click(lambda: ("", "输入框已清空；已保存的 Key 不受影响。"), None, [official_key, key_notice], **QUEUE)
 
