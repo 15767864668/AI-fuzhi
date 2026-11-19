@@ -26,6 +26,9 @@ EXPORT_PRESETS = {
     "红果竖屏·1080P 30帧（建议）": {"width": 1080, "height": 1920, "fps": 30, "video_bitrate": "6000k", "audio_bitrate": "192k", "sample_rate": 48000},
     "红果竖屏·720P 30帧（轻量）": {"width": 720, "height": 1280, "fps": 30, "video_bitrate": "3000k", "audio_bitrate": "128k", "sample_rate": 48000},
     "红果竖屏·1080P 25帧": {"width": 1080, "height": 1920, "fps": 25, "video_bitrate": "6000k", "audio_bitrate": "192k", "sample_rate": 48000},
+    "红果横屏·1080P 30帧（建议）": {"width": 1920, "height": 1080, "fps": 30, "video_bitrate": "6000k", "audio_bitrate": "192k", "sample_rate": 48000},
+    "红果横屏·720P 30帧（轻量）": {"width": 1280, "height": 720, "fps": 30, "video_bitrate": "3000k", "audio_bitrate": "128k", "sample_rate": 48000},
+    "红果横屏·1080P 25帧": {"width": 1920, "height": 1080, "fps": 25, "video_bitrate": "6000k", "audio_bitrate": "192k", "sample_rate": 48000},
 }
 
 
