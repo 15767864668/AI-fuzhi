@@ -14,9 +14,12 @@ def main() -> None:
     data_dir = Path(os.environ.get("HONGGUO_DATA_DIR", "data")).expanduser()
     if not data_dir.is_absolute():
         data_dir = project_root / data_dir
+    from hongguo.canvas import start_canvas_server
+    canvas_port = int(os.environ.get("HONGGUO_CANVAS_PORT", "8766"))
+    canvas_server = start_canvas_server(data_dir, canvas_port)
     from hongguo.ui import build_ui
 
-    app = build_ui(data_dir)
+    app = build_ui(data_dir, canvas_port=canvas_port)
     app.launch(
         server_name="127.0.0.1",
         server_port=int(os.environ.get("HONGGUO_PORT", "7860")),
