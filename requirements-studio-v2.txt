@@ -1,0 +1,4 @@
+# Optional Studio V2 API dependencies
+-r requirements.txt
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
