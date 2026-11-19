@@ -64,6 +64,8 @@ class LocalKeyStore:
         if name not in data:
             raise ValueError("该 Key 已不存在。")
         del data[name]
+        if self.remembered_name() == name:
+            self.forget_selection()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_name(self.path.name + ".tmp")
         try:
@@ -76,3 +78,36 @@ class LocalKeyStore:
         finally:
             if temp.exists():
                 temp.unlink()
+
+    @property
+    def selection_path(self) -> Path:
+        return self.path.with_name("api_key_selection.json")
+
+    def remembered_name(self) -> str | None:
+        if not self.selection_path.exists():
+            return None
+        try:
+            value = json.loads(self.selection_path.read_text(encoding="utf-8"))
+            name = value.get("name") if isinstance(value, dict) else None
+            return name if isinstance(name, str) and name in self._read() else None
+        except (ValueError, OSError):
+            return None
+
+    def remember(self, name: str | None) -> None:
+        if not name or name not in self._read():
+            raise ValueError("请选择一个已保存的 Key。")
+        self.selection_path.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.selection_path.with_name(self.selection_path.name + ".tmp")
+        try:
+            fd = os.open(str(temp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as output:
+                json.dump({"name": name}, output, ensure_ascii=False)
+            os.replace(temp, self.selection_path)
+            if os.name != "nt":
+                os.chmod(self.selection_path, 0o600)
+        finally:
+            if temp.exists():
+                temp.unlink()
+
+    def forget_selection(self) -> None:
+        self.selection_path.unlink(missing_ok=True)
