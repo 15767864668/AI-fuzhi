@@ -10,3 +10,7 @@ data/
 *.part
 *.tmp
 .DS_Store
+
+# Local API credentials
+api_keys.json
+**/api_keys.json
