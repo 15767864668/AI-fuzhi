@@ -9,6 +9,7 @@ import copy
 import json
 import os
 from pathlib import Path
+from .key_store import LocalKeyStore
 from typing import Any
 
 import gradio as gr
@@ -54,6 +55,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
     """创建 UI，不启动 Web 服务，便于脚本测试和本地启动器复用。"""
     data_root = Path(workspace or os.environ.get("HONGGUO_DATA_DIR", "data")).resolve()
     service = StudioService(data_root)
+    key_store = LocalKeyStore(data_root / "api_keys.json")
     setting_widgets: dict[str, gr.Component] = {}
     config_widgets: dict[str, gr.Component] = {}
 
@@ -123,7 +125,18 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                 with gr.Column(scale=1):
                     gr.Markdown("### 视频生成后端")
                     backend = config("backend", gr.Dropdown(label="后端切换", choices=BACKENDS, value="official"))
-                    official_key = gr.Textbox(label="MiniMax API Key（仅当前会话）", type="password", placeholder="可留空，读取 MINIMAX_API_KEY", value="")
+                    official_key = gr.Textbox(label="MiniMax API Key", type="password", placeholder="可留空，读取 MINIMAX_API_KEY", value="")
+                    with gr.Accordion("本地 API Key 管理（仅本机）", open=True):
+                        gr.Markdown("密钥保存在运行程序的电脑的数据目录中，不写入项目包或 GitHub。**本地文件未加密**，请勿在多人共用或公开部署的服务上使用。")
+                        saved_key = gr.Dropdown(label="选择已保存的 MiniMax Key", choices=[], interactive=True)
+                        key_name = gr.Textbox(label="密钥名称", placeholder="例如：我的主账号")
+                        with gr.Row():
+                            save_key_button = gr.Button("保存当前 Key")
+                            select_key_button = gr.Button("使用所选 Key")
+                        with gr.Row():
+                            delete_key_button = gr.Button("删除所选已保存 Key")
+                            clear_key_button = gr.Button("清空输入框")
+                        key_notice = gr.Markdown("")
                     gpu_key = gr.Textbox(label="GPU 服务 API Key（仅当前会话）", type="password", placeholder="可留空，读取 H3_GPU_API_KEY", value="", visible=False)
                     with gr.Row():
                         config("model", gr.Textbox(label="模型", value="MiniMax-H3"))
@@ -327,6 +340,36 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
         add_character.click(save_character, [project_state, character_name, character_image], [project_state, characters_gallery, status], **QUEUE)
         remove_character.click(delete_character, [project_state, character_name], [project_state, characters_gallery, status], **QUEUE)
 
+        def refresh_keys() -> Any:
+            names = key_store.names()
+            return gr.update(choices=names, value=names[0] if names else None)
+
+        def save_local_key(name: str, secret: str) -> tuple[Any, str]:
+            try:
+                key_store.save(name, secret)
+                return gr.update(choices=key_store.names(), value=name.strip()), "已保存到本机。"
+            except Exception as exc:
+                raise error(exc) from exc
+
+        def select_local_key(name: str | None) -> tuple[str, str]:
+            try:
+                return key_store.get(name), "已载入所选 Key，可用于生成。"
+            except Exception as exc:
+                raise error(exc) from exc
+
+        def delete_local_key(name: str | None) -> tuple[Any, str, str]:
+            try:
+                key_store.delete(name)
+                return refresh_keys(), "", "已删除所选本地 Key。"
+            except Exception as exc:
+                raise error(exc) from exc
+
+        save_key_button.click(save_local_key, [key_name, official_key], [saved_key, key_notice], **QUEUE)
+        select_key_button.click(select_local_key, saved_key, [official_key, key_notice], **QUEUE)
+        saved_key.change(select_local_key, saved_key, [official_key, key_notice], **QUEUE)
+        delete_key_button.click(delete_local_key, saved_key, [saved_key, official_key, key_notice], **QUEUE)
+        clear_key_button.click(lambda: ("", "输入框已清空；已保存的 Key 不受影响。"), None, [official_key, key_notice], **QUEUE)
+
         def switch_backend(value: str) -> tuple[Any, ...]:
             official = value == "official"
             return (
@@ -469,7 +512,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
         recover_autosave_button.click(recover_autosave, autosaves, hydrate_outputs, **QUEUE)
         project_upload.upload(load_project, project_upload, hydrate_outputs, **QUEUE)
         new_button.click(new_project, None, hydrate_outputs, **QUEUE)
-        demo.load(new_project, None, hydrate_outputs, **QUEUE).then(refresh_autosaves, None, autosaves, **QUEUE)
+        demo.load(new_project, None, hydrate_outputs, **QUEUE).then(refresh_autosaves, None, autosaves, **QUEUE).then(refresh_keys, None, saved_key, **QUEUE)
 
         def batch_projects(paths: list[Any] | None, *args: Any):
             try:
