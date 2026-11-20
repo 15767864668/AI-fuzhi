@@ -76,10 +76,10 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
     #status {border-left: 3px solid #f05b4f; padding-left: 12px;}
     footer {display: none !important;}
     """
-    with gr.Blocks(title="AI 短剧成片工具", css=css, theme=gr.themes.Soft(primary_hue="red")) as demo:
+    with gr.Blocks(title="Hello Simple", css=css, theme=gr.themes.Soft(primary_hue="red")) as demo:
         # 页面加载事件为每个浏览器会话创建独立项目，并使用同一个串行队列。
         project_state = gr.State(value=None)
-        gr.Markdown("# AI 短剧成片工具", elem_id="studio-title")
+        gr.Markdown("# Hello Simple", elem_id="studio-title")
         gr.Markdown("剧本 → H3 原生人声与对口型 → 字幕 → 混音剪辑 → 成片")
         with gr.Row():
             title = gr.Textbox(label="剧本名称", value="未命名短剧", scale=4)
@@ -105,11 +105,19 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                 txt_upload = gr.File(label="导入 TXT（UTF-8 / GB18030；上传后自动导入）", file_types=[".txt"], type="filepath")
             with gr.Row():
                 with gr.Column():
-                    gr.Markdown("### 角色参考图")
+                    gr.Markdown("### 角色库 · 角色档案与参考图")
+                    character_selector = gr.Dropdown(label="选择已有角色（自动载入档案）", choices=[], interactive=True)
+                    gr.Markdown("角色档案会随项目保存，便于多镜头保持设定一致。")
                     character_name = gr.Textbox(label="角色名称", placeholder="例如：林晚（与表格角色列一致）")
-                    character_image = gr.Image(label="上传角色参考图", type="filepath", sources=["upload"])
+                    character_image = gr.Image(label="上传角色参考图（可选，已有图片可保留）", type="filepath", sources=["upload"])
+                    with gr.Accordion("角色详细设定", open=True):
+                        character_appearance = gr.Textbox(label="外貌 / 发型 / 年龄感", lines=2)
+                        character_costume = gr.Textbox(label="固定服装 / 造型", lines=2)
+                        character_voice = gr.Textbox(label="声音 / 说话风格", lines=2)
+                        character_personality = gr.Textbox(label="性格 / 表演特征", lines=2)
+                        character_notes = gr.Textbox(label="备注 / 禁止变化的细节", lines=2)
                     with gr.Row():
-                        add_character = gr.Button("保存 / 替换角色图")
+                        add_character = gr.Button("保存角色档案 / 参考图")
                         remove_character = gr.Button("删除该角色参考图")
                     characters_gallery = gr.Gallery(label="已保存角色", columns=3, height=240, object_fit="contain", interactive=False)
                 with gr.Column():
@@ -316,30 +324,49 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
             widget.upload(lambda p, source, k=kind: asset_changed(p, source, k), [project_state, widget], [project_state, status], **QUEUE)
             widget.clear(lambda p, k=kind: asset_changed(p, None, k), project_state, [project_state, status], **QUEUE)
 
-        def save_character(project: Any, name: str, image: Any) -> tuple[Any, ...]:
+        profile_widgets = [character_appearance, character_costume, character_voice, character_personality, character_notes]
+        profile_keys = ["appearance", "costume", "voice", "personality", "notes"]
+
+        def choose_character(project: Any, name: str | None) -> tuple[Any, ...]:
+            name = name or ""
+            profile = project.character_profiles.get(name, {}) if project else {}
+            return (name, *[profile.get(k, "") for k in profile_keys])
+
+        def save_character(project: Any, name: str, image: Any, *profile_values: str) -> tuple[Any, ...]:
             try:
-                if not (name or "").strip():
-                    raise ValueError("请先填写角色名称。")
-                if not _file_path(image):
-                    raise ValueError("请先上传角色参考图。")
-                project = service.add_asset(project, _file_path(image), "characters", name.strip())
-                return project, _gallery(project), f"已保存角色参考图：{name.strip()}。"
+                name = (name or "").strip()
+                if not name or len(name) > 100:
+                    raise ValueError("角色名称不能为空且不能超过 100 字")
+                profile = dict(zip(profile_keys, [(v or "").strip() for v in profile_values]))
+                if any(len(v) > 3000 for v in profile.values()):
+                    raise ValueError("角色设定每项不能超过 3000 字")
+                if not _file_path(image) and name not in project.characters and not any(profile.values()):
+                    raise ValueError("请上传参考图或填写角色档案")
+                if _file_path(image):
+                    project = service.add_asset(project, _file_path(image), "characters", name)
+                project.character_profiles[name] = profile
+                project = service.update(project, project.title, rows_from_segments(project.segments), project.settings)
+                names = sorted(set(project.characters) | set(project.character_profiles))
+                return project, _gallery(project), gr.update(choices=names, value=name), f"已保存角色：{name}。"
             except Exception as exc:
                 raise error(exc) from exc
 
         def delete_character(project: Any, name: str) -> tuple[Any, ...]:
             try:
                 name = (name or "").strip()
-                if name not in project.characters:
-                    raise ValueError("该角色尚未保存参考图。")
-                project.characters.pop(name)
+                if name not in project.characters and name not in project.character_profiles:
+                    raise ValueError("该角色尚未保存。")
+                project.characters.pop(name, None)
+                project.character_profiles.pop(name, None)
                 project = service.update(project, project.title, rows_from_segments(project.segments), project.settings)
-                return project, _gallery(project), f"已移除角色参考图：{name}。"
+                names = sorted(set(project.characters) | set(project.character_profiles))
+                return project, _gallery(project), gr.update(choices=names, value=None), f"已删除角色：{name}。"
             except Exception as exc:
                 raise error(exc) from exc
 
-        add_character.click(save_character, [project_state, character_name, character_image], [project_state, characters_gallery, status], **QUEUE)
-        remove_character.click(delete_character, [project_state, character_name], [project_state, characters_gallery, status], **QUEUE)
+        character_selector.change(choose_character, [project_state, character_selector], [character_name, *profile_widgets], **QUEUE)
+        add_character.click(save_character, [project_state, character_name, character_image, *profile_widgets], [project_state, characters_gallery, character_selector, status], **QUEUE)
+        remove_character.click(delete_character, [project_state, character_name], [project_state, characters_gallery, character_selector, status], **QUEUE)
 
         def refresh_keys() -> tuple[Any, str, str]:
             names = key_store.names()
