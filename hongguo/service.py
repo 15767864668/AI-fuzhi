@@ -24,9 +24,35 @@ class StudioService:
         # Gradio 共享并发组排队；文件锁额外保护多个本地进程。
         self.task_lock = FileLock(str(self.storage.root / ".studio.lock"), timeout=-1)
 
+    def remember_active(self, project: Project) -> None:
+        """Persist the active project ID without storing secrets."""
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", project.id):
+            raise ValueError("无效项目 ID")
+        marker = self.storage.root / "active_project.txt"
+        temporary = marker.with_suffix(".tmp")
+        temporary.write_text(project.id, encoding="utf-8")
+        temporary.replace(marker)
+
+    def resume_active(self) -> Project:
+        marker = self.storage.root / "active_project.txt"
+        if marker.is_file():
+            try:
+                return self.load_autosave(marker.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError, TypeError):
+                pass
+        projects = self.list_autosaves()
+        if projects:
+            try:
+                return self.load_autosave(projects[0][1])
+            except (OSError, ValueError, TypeError):
+                pass
+        return self.new_project()
+
     def new_project(self, title: str = "未命名短剧") -> Project:
         project = Project(title=title.strip() or "未命名短剧")
         self.storage.checkpoint(project)
+        self.remember_active(project)
         return project
 
     def update(self, project: Project, title: str, rows, settings: dict) -> Project:
@@ -39,6 +65,7 @@ class StudioService:
         updated.settings.update(scrub_secrets(settings))
         validate_settings(updated.settings)
         self.storage.checkpoint(updated)
+        self.remember_active(updated)
         return updated
 
     def add_asset(self, project: Project, path: str | None, kind: str, character: str = "") -> Project:
@@ -65,6 +92,7 @@ class StudioService:
         else:
             raise ValueError("未知素材类型")
         self.storage.checkpoint(updated)
+        self.remember_active(updated)
         return updated
 
     def save(self, project: Project) -> str:
