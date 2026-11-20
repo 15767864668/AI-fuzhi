@@ -508,7 +508,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
 
         export_text_button.click(export_dialogue, common_inputs, [project_state, dialogue_download, status], **QUEUE)
 
-        hydrate_outputs = [project_state, title, script_table, selected_id, characters_gallery, bgm, intro, outro, *setting_inputs, *config_inputs, official_key, gpu_key, clip_preview, final_preview, result_files, live_log, status]
+        hydrate_outputs = [project_state, title, script_table, selected_id, characters_gallery, character_selector, bgm, intro, outro, *setting_inputs, *config_inputs, official_key, gpu_key, clip_preview, final_preview, result_files, live_log, status]
 
         def hydrate(project: Any, message: str) -> list[Any]:
             saved = {**defaults, **project.settings}
@@ -517,6 +517,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                 cfg["extra_json"] = json.dumps(cfg.get("extra_json") or {}, ensure_ascii=False, indent=2)
             return [
                 project, project.title, rows_from_segments(project.segments), _id_update(project), _gallery(project),
+                gr.update(choices=sorted(set(project.characters) | set(project.character_profiles)), value=None),
                 _existing(project.bgm), _existing(project.intro), _existing(project.outro),
                 *[saved.get(key) for key in setting_keys], *[cfg.get(key) for key in config_keys],
                 gr.update(value="", visible=cfg["backend"] == "official"),
