@@ -49,6 +49,7 @@ class Project:
     title: str = "未命名短剧"
     segments: list[Segment] = field(default_factory=list)
     characters: dict[str, str] = field(default_factory=dict)
+    character_profiles: dict[str, dict[str, str]] = field(default_factory=dict)
     bgm: str = ""
     intro: str = ""
     outro: str = ""
@@ -80,6 +81,14 @@ class Project:
         validate_settings(settings)
         if not isinstance(project.characters, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in project.characters.items()):
             raise ValueError("角色素材格式错误")
+        if not isinstance(project.character_profiles, dict) or len(project.character_profiles) > 500:
+            raise ValueError("角色档案格式错误或超过数量限制")
+        allowed_profile_fields = {"appearance", "costume", "voice", "personality", "notes"}
+        for name, profile in project.character_profiles.items():
+            if not isinstance(name, str) or len(name) > 100 or not isinstance(profile, dict):
+                raise ValueError("角色档案名称或内容格式错误")
+            if any(k not in allowed_profile_fields or not isinstance(v, str) or len(v) > 3000 for k, v in profile.items()):
+                raise ValueError("角色档案字段无效或过长")
         return project
 
 
