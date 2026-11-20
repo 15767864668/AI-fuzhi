@@ -95,6 +95,10 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                 type="array", value=[], row_count=(1, "dynamic"), col_count=(7, "fixed"),
                 interactive=True, wrap=True,
             )
+            with gr.Row():
+                bind_row = gr.Dropdown(label="选择要绑定角色的分镜行", choices=[], interactive=True)
+                bind_character = gr.Dropdown(label="从角色库选择角色", choices=[], interactive=True)
+                bind_button = gr.Button("将角色绑定到所选分镜")
             apply_table = gr.Button("应用表格 / 更新片段列表")
             with gr.Accordion("批量录入 / 导入 TXT", open=True):
                 bulk_text = gr.Textbox(label="批量剧本", lines=5, placeholder="每行一句台词；带时间格式：[0-5] 女主|你终于来了。|夜景，近景")
@@ -301,11 +305,41 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
         apply_bulk.click(import_text, [bulk_text, default_duration, append_mode, *common_inputs], sync_outputs, **QUEUE)
         txt_upload.upload(import_file, [txt_upload, default_duration, append_mode, *common_inputs], sync_outputs, **QUEUE)
 
-        def ids_from_table(rows: Any) -> Any:
+        def ids_from_table(rows: Any) -> tuple[Any, Any]:
             ids = [str(row[0]).strip() for row in (rows or []) if row and str(row[0] or "").strip()]
-            return gr.update(choices=ids)
+            return gr.update(choices=ids), gr.update(choices=[(f"第 {i+1} 行 · {str(row[1] or '')[:22]}", str(i)) for i, row in enumerate(rows or []) if row])
 
-        script_table.change(ids_from_table, script_table, selected_id, **QUEUE)
+        script_table.change(ids_from_table, script_table, [selected_id, bind_row], **QUEUE)
+
+        def bind_role(project: Any, rows: Any, row_index: str, role: str, project_title: str) -> tuple[Any, Any, str]:
+            try:
+                if row_index is None or not role:
+                    raise ValueError("请先选择分镜行和角色")
+                if role not in project.characters and role not in project.character_profiles:
+                    raise ValueError("该角色不在角色库中，请先保存角色")
+                updated_rows = [list(row) for row in rows]
+                index = int(row_index)
+                if index < 0 or index >= len(updated_rows):
+                    raise ValueError("分镜行不存在，请重新选择")
+                updated_rows[index][4] = role
+                project = service.update(project, project_title, updated_rows, project.settings)
+                return project, rows_from_segments(project.segments), f"已将角色「{role}」绑定到第 {index+1} 行并保存本地。"
+            except Exception as exc:
+                raise error(exc) from exc
+
+        bind_button.click(bind_role, [project_state, script_table, bind_row, bind_character, title], [project_state, script_table, status], **QUEUE)
+
+        def autosave_edits(project: Any, project_title: str, rows: Any) -> tuple[Any, str]:
+            try:
+                if project is None:
+                    return project, "等待项目加载。"
+                updated = service.update(project, project_title, rows, project.settings)
+                return updated, "编辑已自动保存到本机。"
+            except Exception as exc:
+                return project, f"自动保存失败：{exc}。请检查表格后点击应用表格。"
+
+        script_table.change(autosave_edits, [project_state, title, script_table], [project_state, status], **QUEUE)
+        title.change(autosave_edits, [project_state, title, script_table], [project_state, status], **QUEUE)
 
         def asset_changed(project: Any, source: Any, kind: str) -> tuple[Any, str]:
             try:
@@ -347,7 +381,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                 project.character_profiles[name] = profile
                 project = service.update(project, project.title, rows_from_segments(project.segments), project.settings)
                 names = sorted(set(project.characters) | set(project.character_profiles))
-                return project, _gallery(project), gr.update(choices=names, value=name), f"已保存角色：{name}。"
+                return project, _gallery(project), gr.update(choices=names, value=name), gr.update(choices=names, value=name), f"已保存角色：{name}。"
             except Exception as exc:
                 raise error(exc) from exc
 
@@ -360,12 +394,12 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                 project.character_profiles.pop(name, None)
                 project = service.update(project, project.title, rows_from_segments(project.segments), project.settings)
                 names = sorted(set(project.characters) | set(project.character_profiles))
-                return project, _gallery(project), gr.update(choices=names, value=None), f"已删除角色：{name}。"
+                return project, _gallery(project), gr.update(choices=names, value=None), gr.update(choices=names, value=None), f"已删除角色：{name}。"
             except Exception as exc:
                 raise error(exc) from exc
 
         character_selector.change(choose_character, [project_state, character_selector], [character_name, *profile_widgets], **QUEUE)
-        add_character.click(save_character, [project_state, character_name, character_image, *profile_widgets], [project_state, characters_gallery, character_selector, status], **QUEUE)
+        add_character.click(save_character, [project_state, character_name, character_image, *profile_widgets], [project_state, characters_gallery, character_selector, bind_character, status], **QUEUE)
         remove_character.click(delete_character, [project_state, character_name], [project_state, characters_gallery, character_selector, status], **QUEUE)
 
         def refresh_keys() -> tuple[Any, str, str]:
@@ -508,7 +542,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
 
         export_text_button.click(export_dialogue, common_inputs, [project_state, dialogue_download, status], **QUEUE)
 
-        hydrate_outputs = [project_state, title, script_table, selected_id, characters_gallery, character_selector, bgm, intro, outro, *setting_inputs, *config_inputs, official_key, gpu_key, clip_preview, final_preview, result_files, live_log, status]
+        hydrate_outputs = [project_state, title, script_table, selected_id, characters_gallery, character_selector, bind_character, bind_row, bgm, intro, outro, *setting_inputs, *config_inputs, official_key, gpu_key, clip_preview, final_preview, result_files, live_log, status]
 
         def hydrate(project: Any, message: str) -> list[Any]:
             saved = {**defaults, **project.settings}
@@ -518,6 +552,8 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
             return [
                 project, project.title, rows_from_segments(project.segments), _id_update(project), _gallery(project),
                 gr.update(choices=sorted(set(project.characters) | set(project.character_profiles)), value=None),
+                gr.update(choices=sorted(set(project.characters) | set(project.character_profiles)), value=None),
+                gr.update(choices=[(f"第 {i+1} 行 · {seg.text[:22]}", str(i)) for i, seg in enumerate(project.segments)], value=None),
                 _existing(project.bgm), _existing(project.intro), _existing(project.outro),
                 *[saved.get(key) for key in setting_keys], *[cfg.get(key) for key in config_keys],
                 gr.update(value="", visible=cfg["backend"] == "official"),
@@ -528,6 +564,7 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
         def load_project(source: Any) -> list[Any]:
             try:
                 project = service.load(_file_path(source))
+                service.remember_active(project)
                 return hydrate(project, f"已加载项目：{project.title}。")
             except Exception as exc:
                 raise error(exc) from exc
@@ -550,15 +587,20 @@ def build_ui(workspace: str | Path | None = None) -> gr.Blocks:
                 if not project_id:
                     raise ValueError("请先选择一个本机自动保存项目。")
                 project = service.load_autosave(project_id)
+                service.remember_active(project)
                 return hydrate(project, f"已恢复自动保存：{project.title}。可继续查询已保存的远程任务。")
             except Exception as exc:
                 raise error(exc) from exc
+
+        def resume_on_open() -> list[Any]:
+            project = service.resume_active()
+            return hydrate(project, f"已自动恢复本机项目：{project.title}。")
 
         refresh_autosaves_button.click(refresh_autosaves, None, autosaves, **QUEUE)
         recover_autosave_button.click(recover_autosave, autosaves, hydrate_outputs, **QUEUE)
         project_upload.upload(load_project, project_upload, hydrate_outputs, **QUEUE)
         new_button.click(new_project, None, hydrate_outputs, **QUEUE)
-        demo.load(new_project, None, hydrate_outputs, **QUEUE).then(refresh_autosaves, None, autosaves, **QUEUE).then(refresh_keys, None, [saved_key, official_key, key_notice], **QUEUE)
+        demo.load(resume_on_open, None, hydrate_outputs, **QUEUE).then(refresh_autosaves, None, autosaves, **QUEUE).then(refresh_keys, None, [saved_key, official_key, key_notice], **QUEUE)
 
         def batch_projects(paths: list[Any] | None, *args: Any):
             try:
