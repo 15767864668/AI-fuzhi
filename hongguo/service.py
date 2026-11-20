@@ -108,14 +108,19 @@ class StudioService:
         if segment.character:
             # 单段可用中英文逗号引用多个角色；一个名称对应一张参考图。
             names = [name.strip() for name in segment.character.replace("，", ",").split(",") if name.strip()]
-            missing = [name for name in names if name not in project.characters]
-            if missing:
-                # 无参考图也允许角色名：只通过 prompt 描述身份；有图时缺失名称需明确提示。
-                if project.characters:
-                    raise ValueError(f"角色参考图未配置：{'、'.join(missing)}")
-                return []
-            return [project.characters[name] for name in names]
+            return [project.characters[name] for name in names if name in project.characters]
         return list(project.characters.values())
+
+    def character_prompt(self, project: Project, segment: Segment) -> str:
+        names = [n.strip() for n in segment.character.replace("，", ",").split(",") if n.strip()]
+        labels = {"appearance": "外貌", "costume": "服装", "voice": "声音", "personality": "性格表演", "notes": "连续性要求"}
+        blocks = []
+        for name in names:
+            profile = project.character_profiles.get(name, {})
+            details = "；".join(f"{label}：{profile[key]}" for key, label in labels.items() if profile.get(key))
+            if details:
+                blocks.append(f"{name}：{details}")
+        return "\n".join(blocks)
 
     def fingerprint(self, project: Project, segment: Segment, config: dict) -> str:
         references = []
@@ -136,7 +141,7 @@ class StudioService:
         }
         if isinstance(relevant["extra_json"], str):
             relevant["extra_json"] = json.loads(relevant["extra_json"])
-        payload = {"text": segment.text, "prompt": segment.prompt, "character": segment.character,
+        payload = {"text": segment.text, "prompt": segment.prompt, "character_profile": self.character_prompt(project, segment), "character": segment.character,
                    "duration": round(segment.duration, 6), "trim_start": segment.trim_start,
                    "references": references, "config": relevant}
         return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
@@ -202,7 +207,11 @@ class StudioService:
                                 self.storage.checkpoint(project)
 
                             log(f"[{index}/{len(targets)}] 生成片段 {segment.id}，台词时长 {segment.duration:.2f} 秒")
-                            result = generate_clip(segment, self.references(project, segment), config, destination, log, checkpoint)
+                            generation_segment = copy.deepcopy(segment)
+                            profile_text = self.character_prompt(project, segment)
+                            if profile_text:
+                                generation_segment.prompt = (segment.prompt + "\n角色连续性设定（所有镜头保持一致）：\n" + profile_text).strip()
+                            result = generate_clip(generation_segment, self.references(project, segment), config, destination, log, checkpoint)
                             actual_path = result["local_path"]
                             info = probe(actual_path)
                             streams = info.get("streams", [])
